@@ -1,5 +1,7 @@
 # Processa Pedidos API
 
+![image](https://github.com/kelsonvictr/processa_pedidos/assets/54041512/8928cc5b-5293-4e06-8ca0-04ad349c8509)
+
 ## Overview
 The Processa Pedidos API is a Java-based application for efficient order processing. It integrates PostgreSQL for data management, RabbitMQ for message handling, and SMTP for email functionalities.
 

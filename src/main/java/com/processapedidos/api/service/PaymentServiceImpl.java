@@ -87,52 +87,35 @@ public class PaymentServiceImpl implements PaymentService {
     public void processReceivedPayments(Payment payment) {
         List<Product> productList = orderItemRepository.findProductsByCustomerOrderId(payment.getCustomerOrder().getId());
 
-        if (hasPhysicalProduct(productList)) {
-            shippingGuideRepository.save(new ShippingGuide(
-                    UUID.randomUUID(),
-                    payment.getCustomerOrder(),
-                    LocalDate.now(),
-                    ShippingGuideTypeEnum.TO_SHIPPING
-            ));
+        processShippingGuideForProducts(productList, payment);
+        processCommissionsForProducts(productList, payment);
+        processMembershipStatus(productList, payment);
+        processEmailNotifications(productList, payment);
+        processBonusShippingGuide(productList, payment);
+    }
 
-            Agent agent = agentRepository.findAll().get(0);
-
-            commissionRepository.save(
-                    new Commission(
-                            UUID.randomUUID(),
-                            agent,
-                            payment.getCustomerOrder(),
-                            COMMISSION_AMOUNT
-                    )
-            );
+    private void processShippingGuideForProducts(List<Product> productList, Payment payment) {
+        if (hasPhysicalProduct(productList) || hasBookProduct(productList)) {
+            saveShippingGuide(payment, ShippingGuideTypeEnum.TO_SHIPPING);
         }
 
         if (hasBookProduct(productList)) {
-            shippingGuideRepository.save(new ShippingGuide(
-                    UUID.randomUUID(),
-                    payment.getCustomerOrder(),
-                    LocalDate.now(),
-                    ShippingGuideTypeEnum.TO_ROYALTIES
-            ));
-            shippingGuideRepository.save(new ShippingGuide(
-                    UUID.randomUUID(),
-                    payment.getCustomerOrder(),
-                    LocalDate.now(),
-                    ShippingGuideTypeEnum.TO_ROYALTIES
-            ));
-
-            Agent agent = agentRepository.findAll().get(0);
-
-            commissionRepository.save(
-                    new Commission(
-                            UUID.randomUUID(),
-                            agent,
-                            payment.getCustomerOrder(),
-                            COMMISSION_AMOUNT
-                    )
-            );
+            saveShippingGuide(payment, ShippingGuideTypeEnum.TO_ROYALTIES);
         }
 
+        if (hasVideo(productList) && productList.stream().anyMatch(product -> product.getOthersDetails().contains("\"bonus\":"))) {
+            saveShippingGuide(payment, ShippingGuideTypeEnum.HAS_BONUS);
+        }
+    }
+
+    private void processCommissionsForProducts(List<Product> productList, Payment payment) {
+        if (hasPhysicalProduct(productList) || hasBookProduct(productList)) {
+            Agent agent = agentRepository.findAll().get(0);
+            saveCommission(payment, agent);
+        }
+    }
+
+    private void processMembershipStatus(List<Product> productList, Payment payment) {
         if (hasNewAssociationMember(productList)) {
             Member member = payment.getMember();
             if (member.getMembershipStatus() != MembershipStatusEnum.ACTIVE) {
@@ -140,20 +123,30 @@ public class PaymentServiceImpl implements PaymentService {
                 memberRepository.save(member);
             }
         }
+    }
 
+    private void processEmailNotifications(List<Product> productList, Payment payment) {
         if (hasMembershipOrUpgrade(productList)) {
             emailService.sendSimpleMessage(payment.getMember().getEmail(), EMAIL_SUBJECT, EMAIL_TEXT);
         }
+    }
 
-        if (hasVideo(productList) && productList.stream().anyMatch(product -> product.getOthersDetails().contains("\"bonus\":"))) {
-            shippingGuideRepository.save(new ShippingGuide(
-                    UUID.randomUUID(),
-                    payment.getCustomerOrder(),
-                    LocalDate.now(),
-                    ShippingGuideTypeEnum.HAS_BONUS
-            ));
+    private void processBonusShippingGuide(List<Product> productList, Payment payment) {
+       boolean hasBonusVideo = productList.stream()
+                .anyMatch(product -> ProductTypeEnum.VIDEO.equals(product.getType()) &&
+                        product.getOthersDetails().contains("\"bonus\":"));
+
+        if (hasBonusVideo) {
+            saveShippingGuide(payment, ShippingGuideTypeEnum.HAS_BONUS);
         }
+    }
 
+    private void saveShippingGuide(Payment payment, ShippingGuideTypeEnum type) {
+        shippingGuideRepository.save(new ShippingGuide(UUID.randomUUID(), payment.getCustomerOrder(), LocalDate.now(), type));
+    }
+
+    private void saveCommission(Payment payment, Agent agent) {
+        commissionRepository.save(new Commission(UUID.randomUUID(), agent, payment.getCustomerOrder(), COMMISSION_AMOUNT));
     }
 
     private boolean paymentProcessSender(Payment payment) throws JsonProcessingException {
